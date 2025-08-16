@@ -22,7 +22,7 @@ if MAPS_API_KEY == "YOUR_GOOGLE_MAPS_API_KEY" or GENAI_API_KEY == "YOUR_GEMINI_A
 
 try:
     genai.configure(api_key=GENAI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash") # Using a powerful model for better suggestions
+    model = genai.GenerativeModel("gemini-2.0-flash") # Using a powerful model for better suggestions
 except Exception as e:
     st.error(f"Failed to configure the Generative AI model. Please check your GENAI_API_KEY. Error: {e}")
     st.stop()
@@ -284,7 +284,7 @@ def is_relevant_business(business_name, business_type, keyword):
         # Transportation & Logistics
         'logistics': ['logistics', 'transport', 'shipping', 'delivery', 'courier', 'freight'],
         'taxi': ['taxi', 'cab', 'ride', 'transport service', 'car rental', 'vehicle hire']
-    }
+     }
     
     # Check if keyword matches any category
     for category, related_words in keyword_categories.items():
@@ -294,12 +294,127 @@ def is_relevant_business(business_name, business_type, keyword):
     
     return False
 
+def convert_to_target_businesses(product_service):
+    """Convert product/service keywords to target business types for lead generation."""
+    product_lower = product_service.lower()
+    
+    # Product/Service to Target Business mapping
+    service_to_target = {
+        # Digital Services
+        'web design': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'digital marketing': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'seo services': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'social media': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'app development': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'software': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        
+        # Business Services
+        'accounting': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'legal services': ['restaurant', 'hotel', 'clinic', 'real estate', 'salon', 'gym', 'retail store'],
+        'consulting': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        'insurance': ['restaurant', 'hotel', 'clinic', 'law firm', 'real estate', 'salon', 'gym', 'retail store'],
+        
+        # Products
+        'laptop': ['office', 'business', 'company', 'firm', 'agency', 'school', 'college'],
+        'mobile': ['electronics store', 'mobile shop', 'retail store', 'computer store'],
+        'electronics': ['electronics store', 'retail store', 'computer store', 'mobile shop'],
+        'furniture': ['office', 'hotel', 'restaurant', 'clinic', 'business'],
+        'food products': ['restaurant', 'hotel', 'cafe', 'grocery store', 'supermarket'],
+        'organic food': ['restaurant', 'hotel', 'cafe', 'health store', 'organic store'],
+        
+        # Equipment & Supplies
+        'medical equipment': ['clinic', 'hospital', 'medical center', 'pharmacy'],
+        'gym equipment': ['gym', 'fitness center', 'health club'],
+        'restaurant equipment': ['restaurant', 'hotel', 'cafe', 'bakery'],
+        'office supplies': ['office', 'business', 'company', 'firm', 'agency'],
+        
+        # Direct industry matches (when user enters target industry directly)
+        'restaurant': ['restaurant'],
+        'hotel': ['hotel'],
+        'clinic': ['clinic'],
+        'gym': ['gym'],
+        'salon': ['salon'],
+        'retail store': ['retail store'],
+        'law firm': ['law firm'],
+        'real estate': ['real estate']
+    }
+    
+    # Check for exact matches first
+    for service, targets in service_to_target.items():
+        if service in product_lower:
+            return targets
+    
+    # Check for partial matches
+    for service, targets in service_to_target.items():
+        if any(word in product_lower for word in service.split()):
+            return targets
+    
+    # If no match found, return the original keyword (assume it's a target industry)
+    return [product_service]
+
+def is_target_business_relevant(result, target_business):
+    """Check if the found business matches the target business type."""
+    company_name = result.get("Company Name", "").lower()
+    business_nature = result.get("Nature of Business", "").lower()
+    target_lower = target_business.lower()
+    
+    # Direct matches
+    if target_lower in company_name or target_lower in business_nature:
+        return True
+    
+    # Category-specific matching for target businesses
+    target_categories = {
+        'restaurant': ['restaurant', 'dining', 'food', 'eatery', 'bistro', 'cafe', 'kitchen', 'diner', 'grill', 'pizza', 'burger', 'chinese', 'indian', 'italian'],
+        'hotel': ['hotel', 'inn', 'lodge', 'resort', 'accommodation', 'hospitality', 'motel', 'guest house'],
+        'clinic': ['clinic', 'medical', 'health', 'doctor', 'physician', 'healthcare', 'hospital', 'dental'],
+        'gym': ['gym', 'fitness', 'workout', 'exercise', 'training', 'health club', 'yoga', 'pilates'],
+        'salon': ['salon', 'beauty', 'hair', 'spa', 'grooming', 'styling', 'barber', 'parlor'],
+        'retail store': ['store', 'shop', 'retail', 'market', 'outlet', 'boutique', 'mall', 'shopping'],
+        'law firm': ['law', 'legal', 'lawyer', 'attorney', 'advocate', 'court', 'legal services'],
+        'real estate': ['real estate', 'property', 'housing', 'apartment', 'villa', 'plot', 'builder']
+    }
+    
+    # Check if target business matches any category
+    for category, related_words in target_categories.items():
+        if target_lower == category or target_lower in related_words:
+            return any(word in company_name or word in business_nature for word in related_words)
+    
+    return False
+
 async def fetch_leads_by_keywords(keywords, location, city, locality, search_type, radius):
-    """Enhanced search function for multiple keywords and location types."""
+    """Intelligent lead generation - searches for TARGET BUSINESSES, not product keywords."""
     all_results = []
     
+    # Use only the target industry specified by user, not all possible targets
+    target_keywords = []
+    
+    # Check if user entered a specific target industry
+    target_industry = None
     for keyword in keywords:
         if not keyword.strip():
+            continue
+        keyword_lower = keyword.strip().lower()
+        
+        # Check if this is a direct industry match
+        direct_industries = ['restaurant', 'hotel', 'clinic', 'gym', 'salon', 'retail store', 'law firm', 'real estate', 'office', 'business']
+        if any(industry in keyword_lower for industry in direct_industries):
+            target_industry = keyword.strip()
+            break
+    
+    # If we found a target industry, use only that
+    if target_industry:
+        unique_targets = [target_industry]
+    else:
+        # Otherwise, convert product/service to target businesses but limit to user's intent
+        for keyword in keywords:
+            if not keyword.strip():
+                continue
+            target_business_types = convert_to_target_businesses(keyword.strip())
+            target_keywords.extend(target_business_types)
+        unique_targets = list(set(target_keywords))
+    
+    for target_business in unique_targets:
+        if not target_business.strip():
             continue
             
         try:
@@ -307,7 +422,7 @@ async def fetch_leads_by_keywords(keywords, location, city, locality, search_typ
             if locality and city and location:
                 # Locality-specific search
                 base_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-                search_query = f"{keyword} in {locality}, {city}, {location}"
+                search_query = f"{target_business} in {locality}, {city}, {location}"
                 params = {"query": search_query, "type": "establishment", "key": MAPS_API_KEY}
                 
             elif radius and city and location:
@@ -322,26 +437,26 @@ async def fetch_leads_by_keywords(keywords, location, city, locality, search_typ
                     params = {
                         "location": f"{loc['lat']},{loc['lng']}",
                         "radius": int(float(radius) * 1000),
-                        "keyword": keyword,
+                        "keyword": target_business,
                         "type": "establishment",
                         "key": MAPS_API_KEY
                     }
                 else:
                     # Fallback to text search
                     base_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-                    search_query = f"{keyword} in {city}, {location}"
+                    search_query = f"{target_business} in {city}, {location}"
                     params = {"query": search_query, "type": "establishment", "key": MAPS_API_KEY}
                     
             elif city and location:
                 # City-wide search
                 base_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-                search_query = f"{keyword} in {city}, {location}"
+                search_query = f"{target_business} in {city}, {location}"
                 params = {"query": search_query, "type": "establishment", "key": MAPS_API_KEY}
                 
             elif city or location:
                 # Basic location search
                 base_url = "https://maps.googleapis.com/maps/api/place/textsearch/json"
-                search_query = f"{keyword} in {city or location}"
+                search_query = f"{target_business} in {city or location}"
                 params = {"query": search_query, "type": "establishment", "key": MAPS_API_KEY}
             else:
                 continue
@@ -351,25 +466,24 @@ async def fetch_leads_by_keywords(keywords, location, city, locality, search_typ
             places = response.json().get("results", [])
             
             # Debug: Show what we're searching for
-            st.info(f"🔍 Searching: '{search_query if 'search_query' in locals() else keyword}' - Found {len(places)} places")
+            st.info(f"🎯 Searching for: '{target_business}' in {search_query if 'search_query' in locals() else 'location'} - Found {len(places)} places")
             
             # Process places and filter for relevance
             async with aiohttp.ClientSession() as session:
-                tasks = [process_single_place(session, place, keyword) for place in places[:15]]
+                tasks = [process_single_place(session, place, target_business) for place in places[:15]]
                 results = await asyncio.gather(*tasks)
                 
-                # Filter results for relevance (less strict for debugging)
+                # Filter results for target business relevance
                 relevant_results = []
                 for result in results:
-                    if result:
-                        # For debugging, accept all results initially
+                    if result and is_target_business_relevant(result, target_business):
                         relevant_results.append(result)
                 
                 all_results.extend(relevant_results)
-                st.success(f"✅ Added {len(relevant_results)} results for '{keyword}'")
+                st.success(f"✅ Found {len(relevant_results)} {target_business}s")
                 
         except Exception as e:
-            st.error(f"Error searching for '{keyword}': {e}")
+            st.error(f"Error searching for '{target_business}': {e}")
             continue
     
     # Remove duplicates based on company name and address
@@ -507,10 +621,12 @@ def main():
                 st.write("**Industries:** " + ", ".join(suggestions.get("industries", ["N/A"])))
                 st.write("**Locations:** " + ", ".join(suggestions.get("locations", ["N/A"])))
 
-        # Target Industry Input
-        industry = st.text_input("🎯 Enter your target industry:", placeholder="e.g., Restaurants, Medical Clinics, Retail Stores, Law Firms")
-        if industry and not keywords:
-            keywords = [industry]
+        # Target Industry Input (Primary - this overrides product keywords)
+        industry = st.text_input("🎯 Enter your target industry:", placeholder="e.g., Restaurant, Medical Clinic, Retail Store, Law Firm")
+        
+        # If user specifies target industry, use ONLY that industry
+        if industry:
+            keywords = [industry.strip()]  # Override any product keywords with target industry
     
     with col2:
         if keywords:
