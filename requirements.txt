@@ -1,0 +1,6 @@
+streamlit
+flask
+requests
+aiohttp
+pandas
+google-generativeai
